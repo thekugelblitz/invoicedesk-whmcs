@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS tasks (job_id TEXT,record_id INTEGER,state TEXT DEFAU
 CREATE TABLE IF NOT EXISTS payment_stage (job_id TEXT,record_id INTEGER,client_id INTEGER,payload TEXT,PRIMARY KEY(job_id,record_id),FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS stage_client ON payment_stage(job_id,client_id);
 CREATE TABLE IF NOT EXISTS coverage (id INTEGER PRIMARY KEY,job_id TEXT,kind TEXT,from_date TEXT,to_date TEXT,client_id INTEGER,completed_at TEXT);
+CREATE TABLE IF NOT EXISTS download_events (id TEXT PRIMARY KEY,user_id INTEGER,user_name TEXT,format TEXT,archive_id TEXT,status TEXT,invoice_count INTEGER,created_at TEXT,completed_at TEXT,error TEXT);
+CREATE INDEX IF NOT EXISTS dl_event_time ON download_events(created_at);
+CREATE TABLE IF NOT EXISTS download_items (event_id TEXT,invoice_id INTEGER,source_hash TEXT,PRIMARY KEY(event_id,invoice_id));
+CREATE INDEX IF NOT EXISTS dl_items_invoice ON download_items(invoice_id,event_id);
+CREATE TABLE IF NOT EXISTS download_state (invoice_id INTEGER,format TEXT,count INTEGER NOT NULL DEFAULT 0,last_at TEXT,last_user TEXT,source_hash TEXT,PRIMARY KEY(invoice_id,format));
+CREATE TABLE IF NOT EXISTS archive_members (job_id TEXT,invoice_id INTEGER,source_hash TEXT,format TEXT,PRIMARY KEY(job_id,invoice_id));
 CREATE TABLE IF NOT EXISTS pdfs (invoice_id INTEGER PRIMARY KEY,path TEXT,sha256 TEXT,source_hash TEXT,fetched_at TEXT,size INTEGER);
 SQL);
     }

@@ -6,6 +6,12 @@ final class Report {
         [$from,$to]=dateRange($q);$field=['date'=>'i.date','due'=>'i.due_date','paid'=>'i.paid_date'][$q['basis']??'date']??'i.date';
         $w=[$field.' >= ?',$field.' < ?'];$a=[$from,(new \DateTimeImmutable($to))->modify('+1 day')->format('Y-m-d')];
         foreach(['status'=>'i.status','gst'=>'i.gst_status','currency'=>'i.currency','client_id'=>'i.client_id'] as $k=>$col)if(isset($q[$k]) && $q[$k]!==''){$w[]=$col.'=?';$a[]=$q[$k];}
+        $download=$q['download']??'';
+        $exists="EXISTS(SELECT 1 FROM download_state d WHERE d.invoice_id=i.id AND d.format='pdf')";
+        if($download==='pending')$w[]='NOT '.$exists;
+        if($download==='downloaded')$w[]=$exists;
+        if($download==='updated')$w[]="EXISTS(SELECT 1 FROM download_state d WHERE d.invoice_id=i.id AND d.format='pdf' AND d.source_hash!=i.source_hash)";
+        if($download==='needs_download')$w[]="NOT EXISTS(SELECT 1 FROM download_state d WHERE d.invoice_id=i.id AND d.format='pdf' AND d.source_hash=i.source_hash)";
         if(!empty($q['review'])){$w[]="(i.review=1 AND (r.status IS NULL OR r.status!='reviewed' OR r.source_hash!=i.source_hash))";}
         if(!empty($q['tax'])){$w[]=$q['tax']==='yes'?'(i.tax+i.tax2)!=0':'(i.tax+i.tax2)=0';}
         if(!empty($q['search'])){$w[]='(i.number LIKE ? ESCAPE \'\\\' OR i.client_name LIKE ? ESCAPE \'\\\' OR i.gstin LIKE ? ESCAPE \'\\\')';$v='%'.str_replace(['\\','%','_'],['\\\\','\\%','\\_'],substr($q['search'],0,100)).'%';array_push($a,$v,$v,$v);}
@@ -15,7 +21,7 @@ final class Report {
     public static function invoices(array $q): array {
         [$w,$a]=self::filter($q);$page=max(1,(int)($q['page']??1));$size=min(100,max(10,(int)($q['size']??25)));
         $count=(int)db()->one('SELECT COUNT(*) AS n FROM invoices i LEFT JOIN reviews r ON r.invoice_id=i.id WHERE '.$w,$a)['n'];
-        $rows=db()->all('SELECT i.id,i.client_id,i.number,i.date,i.due_date,i.paid_date,i.status,i.currency,i.total,i.tax,i.tax2,i.balance,i.client_name,i.gstin,i.gst_status,i.basis,i.review,i.fetched_at,i.source_hash,i.issues,i.pdf_check,r.status AS review_status,r.source_hash AS review_hash FROM invoices i LEFT JOIN reviews r ON r.invoice_id=i.id WHERE '.$w.' ORDER BY i.date DESC,i.id DESC LIMIT '.$size.' OFFSET '.(($page-1)*$size),$a);
+        $rows=db()->all('SELECT i.id,i.client_id,i.number,i.date,i.due_date,i.paid_date,i.status,i.currency,i.total,i.tax,i.tax2,i.balance,i.client_name,i.gstin,i.gst_status,i.basis,i.review,i.fetched_at,i.source_hash,i.issues,i.pdf_check,(SELECT last_at FROM download_state d WHERE d.invoice_id=i.id AND d.format=\'pdf\') AS last_downloaded,(SELECT last_user FROM download_state d WHERE d.invoice_id=i.id AND d.format=\'pdf\') AS downloaded_by,(SELECT count FROM download_state d WHERE d.invoice_id=i.id AND d.format=\'pdf\') AS download_count,(SELECT source_hash FROM download_state d WHERE d.invoice_id=i.id AND d.format=\'pdf\') AS downloaded_hash,r.status AS review_status,r.source_hash AS review_hash FROM invoices i LEFT JOIN reviews r ON r.invoice_id=i.id WHERE '.$w.' ORDER BY i.date DESC,i.id DESC LIMIT '.$size.' OFFSET '.(($page-1)*$size),$a);
         return ['rows'=>$rows,'total'=>$count,'page'=>$page,'pages'=>(int)ceil($count/$size)];
     }
     public static function ids(array $q): array {[$w,$a]=self::filter($q);return array_column(db()->all('SELECT i.id FROM invoices i LEFT JOIN reviews r ON r.invoice_id=i.id WHERE '.$w.' ORDER BY i.id LIMIT 10001',$a),'id');}
@@ -32,7 +38,7 @@ final class Report {
         $payArgs=[$from,$to.' 23:59:59'];$payWhere='date>=? AND date<=?';
         if(!empty($q['currency'])){$payWhere.=' AND currency=?';$payArgs[]=$q['currency'];}
         $cash=db()->all('SELECT currency,SUM(amount_in) AS received,SUM(amount_out) AS refunded,SUM(fees) AS fees FROM transactions WHERE '.$payWhere.' GROUP BY currency',$payArgs);
-        $gateways=db()->all('SELECT gateway,currency,SUM(amount_in-amount_out) AS net,SUM(fees) AS fees FROM transactions WHERE '.$payWhere.' GROUP BY gateway,currency ORDER BY net DESC',$payArgs);
+        $gateways=db()->all('SELECT gateway,currency,SUM(amount_in-amount_out) AS net,SUM(amount_in) AS received,SUM(amount_out) AS refunded,SUM(fees) AS fees FROM transactions WHERE '.$payWhere.' GROUP BY gateway,currency ORDER BY net DESC',$payArgs);
         $flags=db()->one("SELECT COUNT(*) AS all_count,SUM(i.review=1 AND (r.status IS NULL OR r.status!='reviewed' OR r.source_hash!=i.source_hash)) AS review_count,MIN(i.fetched_at) AS oldest,MAX(i.fetched_at) AS newest".$join,$a);
         return compact('totals','gst','trend','aging','top','cash','gateways','flags')+['coverage'=>db()->all('SELECT * FROM coverage ORDER BY id DESC LIMIT 10'),'active'=>db()->one("SELECT id,type,state,done,total,message FROM jobs WHERE state IN ('queued','running') LIMIT 1")];
     }
@@ -72,9 +78,9 @@ final class Report {
     }
     public static function csvCell(mixed $v): string { $s=(string)$v;if(preg_match('/^-[0-9]+(?:\.[0-9]+)?$/D',$s))return $s;return preg_match('/^[\x00-\x20]*[=+@\-]/',$s)?"'".$s:$s; }
     public static function invoiceCsv($stream,array $q): void {
-        $headers=['Invoice ID','Invoice number','Invoice date','Paid date','Client ID','Client','Country','Currency','Subtotal','Tax level 1','Tax level 2','Total','Credit applied','Balance','Status','Recipient GSTIN','GSTIN check','Evidence','Tax charged','Document type','Issues','Source fetched at','PDF text result','PDF recipient candidates','PDF checked at','PDF check source changed'];
+        $headers=['Invoice ID','Invoice number','Invoice date','Paid date','Client ID','Client','Country','Currency','Subtotal','Tax level 1','Tax level 2','Total','Credit applied','Balance','Status','Recipient GSTIN','GSTIN check','Evidence','Tax charged','Document type','Issues','Source fetched at','Last PDF downloaded','Last downloaded by','PDF download count','Updated since PDF download','PDF text result','PDF recipient candidates','PDF checked at','PDF check source changed'];
         fputcsv($stream,$headers,',','"','');[$w,$a]=self::filter($q);
-        $s=db()->run('SELECT i.* FROM invoices i LEFT JOIN reviews r ON r.invoice_id=i.id WHERE '.$w.' ORDER BY i.id',$a);
-        while($i=$s->fetch()){$p=json_decode($i['payload'],true);$r=[$i['id'],$i['number'],$i['date'],$i['paid_date'],$i['client_id'],$i['client_name'],$i['country'],$i['currency'],Money::decimal($i['subtotal']),Money::decimal($i['tax']),Money::decimal($i['tax2']),Money::decimal($i['total']),Money::decimal($i['credit']),Money::decimal($i['balance']),$i['status'],$i['gstin'],$i['gst_status'],$i['basis'],($i['tax']+$i['tax2'])!=0?'yes':'no',$p['invoice']['_kind']??'invoice',implode('; ',json_decode($i['issues'],true)),$i['fetched_at']];$pc=$i['pdf_check']?json_decode($i['pdf_check'],true):[];array_push($r,$pc['result']??'not_scanned',implode('; ',$pc['recipient_candidates']??[]),$pc['checked_at']??'',isset($pc['source_hash'])&&$pc['source_hash']!==$i['source_hash']?'yes':'no');fputcsv($stream,array_map([self::class,'csvCell'],$r),',','"','');}
+        $s=db()->run("SELECT i.*,d.last_at AS dl_at,d.last_user AS dl_user,d.count AS dl_count,d.source_hash AS dl_hash FROM invoices i LEFT JOIN reviews r ON r.invoice_id=i.id LEFT JOIN download_state d ON d.invoice_id=i.id AND d.format='pdf' WHERE ".$w.' ORDER BY i.id',$a);
+        while($i=$s->fetch()){$p=json_decode($i['payload'],true);$r=[$i['id'],$i['number'],$i['date'],$i['paid_date'],$i['client_id'],$i['client_name'],$i['country'],$i['currency'],Money::decimal($i['subtotal']),Money::decimal($i['tax']),Money::decimal($i['tax2']),Money::decimal($i['total']),Money::decimal($i['credit']),Money::decimal($i['balance']),$i['status'],$i['gstin'],$i['gst_status'],$i['basis'],($i['tax']+$i['tax2'])!=0?'yes':'no',$p['invoice']['_kind']??'invoice',implode('; ',json_decode($i['issues'],true)),$i['fetched_at']];array_push($r,$i['dl_at']??'',$i['dl_user']??'',$i['dl_count']??0,$i['dl_count']&&$i['dl_hash']!==$i['source_hash']?'yes':'no');$pc=$i['pdf_check']?json_decode($i['pdf_check'],true):[];array_push($r,$pc['result']??'not_scanned',implode('; ',$pc['recipient_candidates']??[]),$pc['checked_at']??'',isset($pc['source_hash'])&&$pc['source_hash']!==$i['source_hash']?'yes':'no');fputcsv($stream,array_map([self::class,'csvCell'],$r),',','"','');}
     }
 }

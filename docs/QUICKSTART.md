@@ -1,4 +1,4 @@
-# InvoiceDesk — cPanel quick start
+# Munshi Ji — cPanel quick start
 
 1. Extract the full source outside `public_html`.
 2. Serve only `public/`. If copying its contents into a different document root, update the `require` path in `api.php` to the private `app/bootstrap.php`.

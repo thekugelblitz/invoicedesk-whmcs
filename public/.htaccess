@@ -1,0 +1,6 @@
+Require all granted
+Options -Indexes
+DirectoryIndex index.php
+<FilesMatch "\.(sqlite|db|log|ini|bak|zip|env)$">
+Require all denied
+</FilesMatch>

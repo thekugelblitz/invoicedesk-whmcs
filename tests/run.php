@@ -61,6 +61,35 @@ test('source API client passwords and unrelated custom fields are not retained',
 test('ledger CSV streams every settlement entry with exact running balance',function(){$f=fopen('php://temp','w+');InvoiceDesk\Ledger::csv($f,101,['from'=>'2026-09-01','to'=>'2026-09-30']);rewind($f);$csv=stream_get_contents($f);fclose($f);eq(str_contains($csv,'53.00'),true);eq(substr_count(trim($csv),"\n"),5);});
 test('overlapping active jobs are rejected',function()use($jobs){$id=$jobs->create('refresh',['ids'=>[1]]);throws(fn()=>$jobs->create('refresh',['ids'=>[2]]));eq(drain($jobs,$id)['state'],'complete');});
 test('bulk PDF scans fail visibly when text extraction is unavailable',function()use($jobs){$id=$jobs->create('pdf_scan',['ids'=>[1]]);$r=drain($jobs,$id);eq($r['state'],'partial');eq($r['errors'],1);});
+
+test('download only counts after a completed response; repeated finishes are idempotent',function(){
+ $row=db()->one('SELECT * FROM invoices WHERE id=1');$u=['id'=>1,'name'=>'Fixture analyst','email'=>'fixture@example.test'];
+ $id=InvoiceDesk\Downloads::begin([['invoice_id'=>1,'source_hash'=>$row['source_hash']]],'pdf',$u);
+ eq(db()->one("SELECT * FROM download_state WHERE invoice_id=1 AND format='pdf'"),null);
+ InvoiceDesk\Downloads::finish($id,true);InvoiceDesk\Downloads::finish($id,true);
+ eq(db()->one("SELECT count FROM download_state WHERE invoice_id=1 AND format='pdf'")['count'],1);
+ $next=InvoiceDesk\Downloads::begin([['invoice_id'=>1,'source_hash'=>$row['source_hash']]],'pdf',$u);InvoiceDesk\Downloads::finish($next,true);
+ eq(db()->one("SELECT count FROM download_state WHERE invoice_id=1 AND format='pdf'")['count'],2);
+});
+test('failed downloads and HTML copies do not clear pending original PDFs',function(){
+ $row=db()->one('SELECT * FROM invoices WHERE id=2');$u=['id'=>1,'name'=>'Analyst','email'=>'fixture@example.test'];
+ foreach(['pdf'=>false,'html'=>true] as $format=>$ok){$id=InvoiceDesk\Downloads::begin([['invoice_id'=>2,'source_hash'=>$row['source_hash']]],$format,$u);InvoiceDesk\Downloads::finish($id,$ok);}
+ eq(db()->one("SELECT * FROM download_state WHERE invoice_id=2 AND format='pdf'"),null);
+ $ids=Report::ids(['from'=>'2026-09-01','to'=>'2026-09-30','download'=>'pending']);eq(in_array(2,$ids),true);eq(in_array(1,$ids),false);
+});
+test('source changes keep history and expose updated-since-download status',function(){
+ db()->run("UPDATE invoices SET source_hash='changed-version' WHERE id=1");$q=['from'=>'2026-09-01','to'=>'2026-09-30'];
+ eq(Report::ids($q+['download'=>'updated']),[1]);$d=InvoiceDesk\Downloads::summary($q);eq((int)$d['updated'],1);eq((int)$d['downloaded'],1);
+ eq(InvoiceDesk\Downloads::history(['invoice_id'=>1])['total'],2);
+});
+test('database connection failures provide targeted cPanel instructions',function(){
+ foreach([1045=>'password',1049=>'database name',2002=>'server',1142=>'SELECT'] as $code=>$needle){$e=new PDOException('Fixture failure');$e->errorInfo=['HY000',$code,'Fixture failure'];eq(str_contains(InvoiceDesk\Diagnostics::databaseMessage($e),$needle),true);}
+});
+test('private diagnostic log is created, searchable and redacts secrets',function(){
+ $e=new RuntimeException('password=never-show secret="never-show" token=never-show');$r=InvoiceDesk\Diagnostics::response($e,['action'=>'fixture']);eq($r['log_saved'],true);
+ $report=InvoiceDesk\Diagnostics::report($r['reference']);eq(count($report['rows']),1);eq(str_contains($report['rows'][0]['message'],'never-show'),false);
+ eq(is_file(InvoiceDesk\Diagnostics::path()),true);
+});
 echo "\n".$passed.' passed, '.$failed." failed\n";
 // Keep tests self-contained, clean fixture data after the database handles are closed at process exit.
 exit($failed?1:0);

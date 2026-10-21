@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace InvoiceDesk\Connectors;
 use PDO;
+use InvoiceDesk\Diagnostics;
 final class Database implements Source {
     private PDO $p;
     private array $cols=[];
@@ -10,12 +11,13 @@ final class Database implements Source {
         foreach(['db_host','db_name','db_user'] as $k)if(empty($c[$k]))throw new \InvalidArgumentException('Database connection fields are required.');
         if(preg_match('/[;\x00-\x1f]/',($c['db_host']??'').($c['db_name']??'')))throw new \InvalidArgumentException('Invalid database host or name.');
         $port=(int)($c['db_port']??3306);if($port<1||$port>65535)throw new \InvalidArgumentException('Invalid database port.');
+        if(!in_array('mysql',PDO::getAvailableDrivers(),true))throw new \RuntimeException('PHP PDO MySQL is not enabled. In cPanel → Select PHP Version / PHP Extensions, enable pdo_mysql for the PHP version serving this app.');
         $options=[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false,PDO::ATTR_TIMEOUT=>5];
         if(!empty($c['db_ssl_ca'])){$options[PDO::MYSQL_ATTR_SSL_CA]=$c['db_ssl_ca'];$options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT]=true;}
-        $this->p=new PDO('mysql:host='.$c['db_host'].';port='.$port.';dbname='.$c['db_name'].';charset=utf8mb4',$c['db_user'],$c['db_password']??'',$options);
-        $this->p->exec('SET SESSION TRANSACTION READ ONLY');
+        try{$this->p=new PDO('mysql:host='.$c['db_host'].';port='.$port.';dbname='.$c['db_name'].';charset=utf8mb4',$c['db_user'],$c['db_password']??'',$options);}catch(\PDOException $e){throw new \RuntimeException(Diagnostics::databaseMessage($e,'connect'),0,$e);}
+        try{$this->p->exec('SET SESSION TRANSACTION READ ONLY');}catch(\PDOException $e){throw new \RuntimeException(Diagnostics::databaseMessage($e,'read-only'),0,$e);}
     }
-    private function query(string $sql,array $args=[]): array {$s=$this->p->prepare($sql);$s->execute($args);return $s->fetchAll(PDO::FETCH_ASSOC);}
+    private function query(string $sql,array $args=[]): array {try{$s=$this->p->prepare($sql);$s->execute($args);return $s->fetchAll(PDO::FETCH_ASSOC);}catch(\PDOException $e){throw new \RuntimeException(Diagnostics::databaseMessage($e,'query'),0,$e);}}
     public function columns(string $table): array {
         if(!preg_match('/^tbl[a-z_]+$/D',$table))throw new \InvalidArgumentException('Invalid table.');
         return $this->cols[$table]??=array_column($this->query('SHOW COLUMNS FROM `'.$table.'`'),'Field');

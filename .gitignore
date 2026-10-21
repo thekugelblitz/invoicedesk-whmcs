@@ -1,0 +1,29 @@
+# Runtime configuration and private credentials
+/config.php
+/.env
+/.env.*
+!/.env.example
+/integration/bridge-config.php
+/integration/*-config.local.php
+
+# Runtime data, sessions, cached invoices and generated exports
+/var/*
+!/var/.htaccess
+/private/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.key
+*.log
+*.lock
+*.zip
+*.pdf
+
+# Local development artifacts
+/node_modules/
+/vendor/
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db

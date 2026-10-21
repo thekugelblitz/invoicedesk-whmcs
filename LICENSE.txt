@@ -1,0 +1,5 @@
+InvoiceDesk for WHMCS — 2026
+
+Permission is granted to use, copy, modify, and distribute this source for your business and hosting operations, with or without modification.
+
+The software is supplied as-is, without warranty of any kind. Verify accounting outputs and integration behavior against your source systems before relying on them. WHMCS is a trademark of its respective owner; this is an independent integration.

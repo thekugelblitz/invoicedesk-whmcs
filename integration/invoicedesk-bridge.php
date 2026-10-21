@@ -5,7 +5,7 @@ ini_set('display_errors','0');ini_set('log_errors','1');
 $invoiceDeskConfigPath='/home/CPANELUSER/private/invoicedesk-bridge-config.php';
 header('Cache-Control: no-store');header('X-Content-Type-Options: nosniff');header('X-Frame-Options: DENY');
 function idBridgeJson(array $v,int $status=200): never {http_response_code($status);header('Content-Type: application/json');echo json_encode($v,JSON_INVALID_UTF8_SUBSTITUTE);exit;}
-set_exception_handler(function(Throwable $e){error_log('InvoiceDesk bridge: '.get_class($e).' '.$e->getMessage());idBridgeJson(['error'=>'Bridge could not complete this operation. Check its private PHP error log and installed WHMCS version.'],500);});
+set_exception_handler(function(Throwable $e){error_log('Munshi Ji bridge: '.get_class($e).' '.$e->getMessage());idBridgeJson(['error'=>'Bridge could not complete this operation. Check its private PHP error log and installed WHMCS version.'],500);});
 if(!is_file($invoiceDeskConfigPath))idBridgeJson(['error'=>'Bridge configuration is missing.'],503);
 $c=require $invoiceDeskConfigPath;
 if(($c['require_https']??true) && (empty($_SERVER['HTTPS'])||$_SERVER['HTTPS']==='off'))idBridgeJson(['error'=>'HTTPS required'],400);

@@ -2,13 +2,11 @@
 declare(strict_types=1);
 ini_set('display_errors','0');ini_set('log_errors','1');
 require dirname(__DIR__).'/app/bootstrap.php';
-use InvoiceDesk\{Auth,Service,Jobs,Report,Archive,InvoiceView,Vault,Http,Gst};
+use InvoiceDesk\{Auth,Service,Jobs,Report,Archive,InvoiceView,Vault,Http,Gst,Downloads,Diagnostics};
 use function InvoiceDesk\{config,db,json,now,audit};
 header('Cache-Control: no-store, private');header('X-Content-Type-Options: nosniff');header('X-Frame-Options: DENY');header('Referrer-Policy: same-origin');
 set_exception_handler(function(Throwable $e){
-    $id=bin2hex(random_bytes(6));
-    if($e instanceof PDOException || $e instanceof Error){error_log('InvoiceDesk '.$id.' '.get_class($e).': '.$e->getMessage());json(['error'=>'Internal error. Check the private PHP error log with reference '.$id],500);}
-    json(['error'=>substr($e->getMessage(),0,350)],400);
+    $r=Diagnostics::response($e,['action'=>substr((string)($_GET['action']??''),0,60)]);json($r,$e instanceof Error?500:400);
 });
 if((config()['require_https']??true) && !Auth::https())json(['error'=>'HTTPS is required. Configure HTTPS for this app and pass HTTPS=on through your trusted reverse proxy if applicable.'],400);
 Auth::start();$action=$_GET['action']??'bootstrap';$method=$_SERVER['REQUEST_METHOD'];$body=[];
@@ -24,11 +22,14 @@ $u=Auth::require();
 if($method==='POST' && $action==='logout'){audit('logout');$_SESSION=[];session_destroy();json(['ok'=>true]);}
 if($action==='dashboard' && $method==='GET')json(Report::dashboard($_GET));
 if($action==='gst_summary' && $method==='GET')json(Report::gstSummary($_GET));
+if($action==='download_summary' && $method==='GET')json(Downloads::summary($_GET));
+if($action==='download_history' && $method==='GET')json(Downloads::history($_GET));
 if($action==='invoices' && $method==='GET')json(Report::invoices($_GET));
 if($action==='invoice' && $method==='GET'){
     $id=(int)($_GET['id']??0);$i=db()->one('SELECT * FROM invoices WHERE id=?',[$id]);if(!$i)json(['error'=>'Invoice not found'],404);
     $i['payload']=json_decode($i['payload'],true);$i['issues']=json_decode($i['issues'],true);$i['pdf_check']=$i['pdf_check']?json_decode($i['pdf_check'],true):null;
     $i['review_record']=db()->one('SELECT r.*,u.name AS reviewer FROM reviews r LEFT JOIN users u ON u.id=r.user_id WHERE invoice_id=?',[$id]);
+    $i['downloads']=Downloads::history(['invoice_id'=>$id])['rows'];$i['download_state']=db()->one("SELECT * FROM download_state WHERE invoice_id=? AND format='pdf'",[$id]);
     $i['transactions']=db()->all('SELECT * FROM transactions WHERE invoice_id=? ORDER BY date,id',[$id]);json($i);
 }
 if($action==='clients' && $method==='GET'){
@@ -38,13 +39,25 @@ if($action==='ledger' && $method==='GET')json(Report::ledger((int)($_GET['id']??
 if($action==='jobs' && $method==='GET'){
     $rows=db()->all('SELECT * FROM jobs ORDER BY created_at DESC LIMIT 40');foreach($rows as &$j){unset($j['params'],$j['cursor']);$j['failures']=db()->all("SELECT record_id,error,attempts FROM tasks WHERE job_id=? AND state='failed' LIMIT 30",[$j['id']]);$j['downloadable']=$j['type']==='archive'&&in_array($j['state'],['complete','partial'],true)&&is_file((new Archive($s))->path($j['id']));}unset($j);json(['rows'=>$rows]);
 }
-if(in_array($action,['copy','pdf','download','csv','ledger_csv','payments_csv','credits_csv'],true) && $method==='GET'){
+if(in_array($action,['copy','pdf','download','csv','ledger_csv','payments_csv','credits_csv','history_csv'],true) && $method==='GET'){
     Auth::require('analyst');session_write_close();
     if($action==='copy'){$i=db()->one('SELECT * FROM invoices WHERE id=?',[(int)$_GET['id']]);if(!$i)json(['error'=>'Not found'],404);header('Content-Type: text/html; charset=utf-8');echo InvoiceView::html($i);exit;}
-    if($action==='pdf'){$r=(new Archive($s))->pdf((int)$_GET['id']);audit('pdf_download',['invoice'=>(int)$_GET['id']]);header('Content-Type: application/pdf');header('Content-Disposition: inline; filename="invoice-'.(int)$_GET['id'].'.pdf"');header('Content-Length: '.$r['size']);readfile($r['path']);exit;}
-    if($action==='download'){$id=(string)($_GET['id']??'');$j=db()->one('SELECT state,type FROM jobs WHERE id=?',[$id]);if(!$j||$j['type']!=='archive'||!in_array($j['state'],['complete','partial'],true))throw new RuntimeException('Archive is not ready.');$path=(new Archive($s))->path($id);if(!is_file($path))throw new RuntimeException('Archive expired. Create it again.');audit('archive_download',['id'=>$id]);header('Content-Type: application/zip');header('Content-Disposition: attachment; filename="InvoiceDesk-'.$id.'.zip"');header('Content-Length: '.filesize($path));readfile($path);exit;}
-    header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="InvoiceDesk-'.date('Ymd-His').'.csv"');$f=fopen('php://output','w');fwrite($f,"\xEF\xBB\xBF");
-    if($action==='csv'){audit('csv_export');Report::invoiceCsv($f,$_GET);}
+    if($action==='pdf'){
+        $id=(int)$_GET['id'];$r=(new Archive($s))->pdf($id);
+        if(!empty($_GET['preview'])){header('Content-Type: application/pdf');header('Content-Disposition: inline; filename="invoice-'.$id.'.pdf"');readfile($r['path']);exit;}
+        Downloads::serve($r['path'],'application/pdf','invoice-'.$id.'.pdf',[['invoice_id'=>$id,'source_hash'=>$r['source_hash']]],'pdf',$u);exit;
+    }
+    if($action==='download'){
+        $id=(string)($_GET['id']??'');$j=db()->one('SELECT state,type,params FROM jobs WHERE id=?',[$id]);
+        if(!$j||$j['type']!=='archive'||!in_array($j['state'],['complete','partial'],true))throw new RuntimeException('Archive is not ready.');
+        $path=(new Archive($s))->path($id);if(!is_file($path))throw new RuntimeException('Archive expired. Create it again.');
+        $members=db()->all("SELECT m.invoice_id,m.source_hash FROM archive_members m JOIN tasks t ON t.job_id=m.job_id AND t.record_id=m.invoice_id WHERE m.job_id=? AND t.state='done'",[$id]);
+        if(!$members)throw new RuntimeException('This older archive has no version manifest. Rebuild it to enable accurate download tracking.');
+        $params=json_decode($j['params'],true);Downloads::serve($path,'application/zip','Munshi-Ji-'.$id.'.zip',$members,$params['format']??'pdf',$u,$id);exit;
+    }
+    header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="Munshi-Ji-'.date('Ymd-His').'.csv"');$f=fopen('php://output','w');fwrite($f,"\xEF\xBB\xBF");
+    if($action==='history_csv'){audit('download_history_export');Downloads::csv($f);}
+    elseif($action==='csv'){audit('csv_export');Report::invoiceCsv($f,$_GET);}
     elseif($action==='ledger_csv')InvoiceDesk\Ledger::csv($f,(int)$_GET['id'],$_GET);
     else Report::paymentCsv($f,(int)($_GET['id']??0),$_GET,$action==='credits_csv');
     fclose($f);exit;
@@ -52,6 +65,7 @@ if(in_array($action,['copy','pdf','download','csv','ledger_csv','payments_csv','
 if($action==='connection' && $method==='GET'){
     Auth::require('admin');$c=$s->connection();foreach(['secret','db_password','bridge_secret'] as $key){$c[$key.'_set']=!empty($c[$key]);unset($c[$key]);}json($c);
 }
+if($action==='diagnostics' && $method==='GET'){Auth::require('admin');json(Diagnostics::report(substr((string)($_GET['reference']??''),0,30)));}
 if($action==='audit' && $method==='GET'){Auth::require('admin');json(['rows'=>db()->all('SELECT a.*,u.name FROM audit a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 150')]);}
 if($action==='users' && $method==='GET'){Auth::require('admin');json(['rows'=>db()->all('SELECT id,name,email,role,enabled,created_at FROM users ORDER BY id')]);}
 if($method!=='POST')json(['error'=>'Unknown route'],404);

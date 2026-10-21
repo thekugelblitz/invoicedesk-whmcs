@@ -21,6 +21,6 @@ See UPGRADE-v1.1.md for log locations, database error codes and download trackin
 
 ## Verification and limits
 
-The release was checked with 36 PHP fixture tests, 10 hosted integration tests, independent ZIP CRC validation, TypeScript checks, production builds, and browser checks for filters, invoice details, themes and mobile layout. Live WHMCS credentials were not supplied. Verify your connection and PDF adapter against your own WHMCS version before relying on the data.
+The release was checked with 36 PHP fixture tests, 11 hosted integration tests, independent ZIP CRC validation, TypeScript checks, production builds, and browser checks for filters, invoice details, themes and mobile layout. Live WHMCS credentials were not supplied. Verify your connection and PDF adapter against your own WHMCS version before relying on the data.
 
 Download status records completed server responses through this installation, not browser disk saving or downloads made directly through WHMCS. Source freshness tracks imported invoice/accounting data; a WHMCS template-only change cannot be detected from invoice API data. HTML copies and CSV files do not clear pending original PDF status.

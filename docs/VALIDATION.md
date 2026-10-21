@@ -8,7 +8,7 @@
 - Chromium browser checks on desktop (1440 px) and mobile (390 px): login, invoice register, invoice-detail dialog, GST summaries, client list, ledger tabs, connection/preferences screens, navigation, AMOLED/light switching. No JavaScript page errors or horizontal page overflow in those checks. Screenshots were inspected internally; synthetic data and QA accounts are not shipped.
 - Bridge transport checked against an isolated WHMCS model fixture: HMAC authentication, invalid signature rejection, replay rejection, allowlisted actions, missing invoice response, snapshot normalization, currency metadata, and PDF-header transport response. This does **not** validate actual WHMCS PDF generation.
 
-- v1.2 adds private diagnostics, download history, pending/version freshness checks and a shared TanStack interface. Ten hosted integration tests and independent ZIP CRC validation also passed.
+- v1.2 adds private diagnostics, download history, pending/version freshness checks and a shared TanStack interface. Eleven hosted integration tests and independent ZIP CRC validation also passed.
 
 ## Automated suite coverage
 

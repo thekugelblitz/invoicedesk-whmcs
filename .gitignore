@@ -27,3 +27,6 @@
 /.vscode/
 .DS_Store
 Thumbs.db
+/ui/node_modules/
+/ui/.vite/
+*.jsonl

@@ -1,6 +1,10 @@
-# InvoiceDesk for WHMCS
+> **v1.2:** Modern TanStack UI, bright orange accent, System / Light / Dark / AMOLED themes, mobile invoice cards, shared download history, and actionable database diagnostics. See [upgrade instructions](docs/UPGRADE-v1.2.md).
+>
+> Hosted dashboard: https://munshi-ji.hosting.chatgpt.site (private; configure your WHMCS connection after signing in).
 
-A small, self-hosted billing workspace for HostingSpell: invoice viewing, original PDF downloads, bulk ZIP exports, recipient GSTIN checks, client settlement ledgers, payment journals, and analytics. PHP 8.2+, vanilla JavaScript, local SQLite cache. No Composer, Node.js, external fonts, CDNs, or background daemon required in production.
+# Munshi Ji for WHMCS
+
+A small, self-hosted billing workspace for HostingSpell: invoice viewing, original PDF downloads, bulk ZIP exports, recipient GSTIN checks, client settlement ledgers, payment journals, and analytics. PHP 8.2+, React with TanStack Query and Table, local SQLite cache. No Composer, Node.js, external fonts, CDNs, or background daemon required in production.
 
 This package contains the complete source. It starts empty. No WHMCS credentials, preset administrator password, sample customers, or payment data are shipped.
 
@@ -10,14 +14,14 @@ This package contains the complete source. It starts empty. No WHMCS credentials
 | --- | --- |
 | Connections | WHMCS API identifier/secret, or PDO MySQL with a dedicated SELECT-only user; either mode can use the optional WHMCS bridge |
 | Invoices | Inclusive issue/due/paid date ranges, search, status/currency/tax/GSTIN filters, pagination, detail viewer, line items, payments, printable copy |
-| Downloads | Original WHMCS PDFs through bridge; resumable ZIP jobs for selected or all filtered invoices; CSV result manifest; individual PDF view; printable HTML archives without bridge |
+| Downloads | Original WHMCS PDFs through bridge; resumable ZIP jobs for selected or all filtered invoices; CSV result manifest; individual PDF download with shared history; printable HTML archives without bridge |
 | GST | Recipient regex extraction, format/state/checksum checks, supplier exclusion, custom field mapping, evidence provenance, conflicts, exception review notes, stale-review detection |
 | Tax analysis | Recipient-evidence categories, tax levels and rates, GSTIN state-code groups, duplicate invoice-number checks, working-paper CSV, optional bulk original-PDF text scan |
 | Clients | Complete per-client invoice/payment/credit imports, reconstructed settlement ledger, opening and closing balances, source balance comparison, separate payment and wallet registers |
 | Analytics | Billed sales, actual cash receipts, tax recorded, current outstanding, aging, monthly billing, gateway collections; currencies never combined |
 | Operations | One-record worker steps, idempotent cache writes, visible failures, retry/cancel, short profile caching, cron worker, hook queue, activity log |
 | Access | Separate administrator/analyst/viewer accounts, password changes, encrypted connector secrets, CSRF protection, private sessions, login rate limiting, HTTPS by default |
-| Interface | AMOLED black and light themes, configurable accent, responsive navigation, keyboard focus and labeled controls |
+| Interface | Bright orange accent; System, Light, Dark and AMOLED themes; mobile invoice cards; accessible dialogs and labeled controls |
 
 ## Requirements
 
@@ -236,4 +240,4 @@ See `docs/VALIDATION.md` for the checks performed on this build and the integrat
 - https://docs.whmcs.com/9-1/billing-and-invoicing/invoicing-tutorials/snapshot-customer-invoice-data/
 - https://tutorial.gst.gov.in/userguide/taxpayersdashboard/Search_Taxpayer_manual.htm
 
-The reference interface is the established WHMCS API (`includes/api.php`), not the newer REST API. Verify capabilities on your installed release. InvoiceDesk is an independent integration, not a WHMCS product.
+The reference interface is the established WHMCS API (`includes/api.php`), not the newer REST API. Verify capabilities on your installed release. Munshi Ji is an independent integration, not a WHMCS product.

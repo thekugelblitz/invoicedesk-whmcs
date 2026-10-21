@@ -1,4 +1,4 @@
-InvoiceDesk for WHMCS — 2026
+Munshi Ji for WHMCS — 2026
 
 Permission is granted to use, copy, modify, and distribute this source for your business and hosting operations, with or without modification.
 
